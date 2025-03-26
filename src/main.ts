@@ -79,7 +79,7 @@ async function checkAndFillWalletIframe() {
 
     const currentUrl = await driver.getCurrentUrl();
     console.log('Current URL:', currentUrl);
-    if (currentUrl.includes('wallet')) {
+    if (currentUrl.includes('wallet') || currentUrl.includes('member/edit_billing') || currentUrl.includes('edit_billing')) {
       console.log('Detected wallet page, checking for iframe...');
       
       try {
@@ -118,6 +118,7 @@ async function fillPaymentForm() {
       city: 'Test City',
       postalCode: '12345'
     };
+    console.log("driver", driver)
 
     // Wait and fill card name
     const nameField = await driver.wait(until.elementLocated(By.css('input[placeholder*="Name on Card"]')), 5000);
