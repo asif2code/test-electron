@@ -419,45 +419,109 @@ async function fillPaymentForm() {
         phoneNumber: '2125551234'
       };
 
-      // Handle country selection
-      console.log('Selecting country...');
+      // Check if country is already selected
+      console.log('Checking country selection...');
       try {
-        // Find and click the country dropdown trigger
-        const countryDropdownTrigger = await driver.wait(
-          until.elementLocated(By.css('#country-dropdown')),
-          5000
-        );
-        await countryDropdownTrigger.click();
-        console.log('Clicked country dropdown');
+        // First check if the country text is already visible in the dropdown
+        const countryDropdownText = await driver.findElements(By.css('#country-dropdown .dropdown__selected-text'));
+        let countryAlreadySelected = false;
         
-        // Wait for dropdown items to be visible
-        await driver.wait(
-          until.elementLocated(By.css('.dropdown__items')),
-          5000
-        );
-        
-        // Find the specific country option by exact text match
-        const countryXPath = `//span[@role='option' and @aria-label='${paymentInfo.country}']`;
-        const countryOption = await driver.wait(
-          until.elementLocated(By.xpath(countryXPath)),
-          5000
-        );
-        
-        // Scroll the option into view and click it
-        await driver.executeScript("arguments[0].scrollIntoView(true);", countryOption);
-        await new Promise(resolve => setTimeout(resolve, 1000)); // Wait for scroll
-        await countryOption.click();
-        console.log('Successfully selected country:', paymentInfo.country);
+        if (countryDropdownText.length > 0) {
+          const selectedText = await countryDropdownText[0].getText();
+          if (selectedText === paymentInfo.country) {
+            console.log('Country already correctly selected:', selectedText);
+            countryAlreadySelected = true;
+          }
+        }
+
+        if (!countryAlreadySelected) {
+          // Find and click the country dropdown trigger
+          const countryDropdownTrigger = await driver.wait(
+            until.elementLocated(By.css('#country-dropdown')),
+            5000
+          );
+          
+          // Double check the selected text before clicking
+          try {
+            const selectedText = await countryDropdownTrigger.getText();
+            if (selectedText === paymentInfo.country) {
+              console.log('Country already correctly selected (second check):', selectedText);
+              countryAlreadySelected = true;
+            }
+          } catch (error) {
+            console.log('Could not get dropdown text, proceeding with selection');
+          }
+
+          if (!countryAlreadySelected) {
+            await countryDropdownTrigger.click();
+            console.log('Clicked country dropdown');
+            
+            // Wait for dropdown items to be visible
+            await driver.wait(
+              until.elementLocated(By.css('.dropdown__items')),
+              5000
+            );
+            
+            // Find the specific country option by exact text match
+            const countryXPath = `//span[@role='option' and @aria-label='${paymentInfo.country}']`;
+            const countryOption = await driver.wait(
+              until.elementLocated(By.xpath(countryXPath)),
+              5000
+            );
+            
+            // Scroll the option into view and click it
+            await driver.executeScript("arguments[0].scrollIntoView(true);", countryOption);
+            await new Promise(resolve => setTimeout(resolve, 1000)); // Wait for scroll
+            await countryOption.click();
+            console.log('Successfully selected country:', paymentInfo.country);
+
+            // Wait for dropdown to close and selection to take effect
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+        }
 
         // Wait for address fields to be visible
         await new Promise(resolve => setTimeout(resolve, 1000));
 
-        // Fill address line 1
-        const addressLine1Input = await driver.wait(
-          until.elementLocated(By.css('input[aria-label="Address Line 1"]')),
-          5000
-        );
+        // Check if address fields need to be filled
+        const addressSelectors = [
+          'input[id="address"]',
+          'input[name="address"]',
+          'input[autocomplete="address-line1"]',
+          'input[aria-describedby="address_error"]',
+          'input[aria-invalid="false"][aria-required="true"]'
+        ];
+
+        let addressLine1Input = null;
+        for (const selector of addressSelectors) {
+          try {
+            addressLine1Input = await driver.wait(
+              until.elementLocated(By.css(selector)),
+              5000
+            );
+            console.log(`Found address input with selector: ${selector}`);
+            break;
+          } catch (error) {
+            console.log(`Address input not found with selector: ${selector}`);
+            continue;
+          }
+        }
+
+        if (!addressLine1Input) {
+          console.log('Could not find address input field');
+          return;
+        }
+
+        const currentAddress = await addressLine1Input.getAttribute('value');
+        if (currentAddress === addressInfo.addressLine1) {
+          console.log('Address fields already filled correctly');
+          return;
+        }
+
+        // Fill address fields
+        console.log('Filling address fields...');
         await addressLine1Input.clear();
+        await new Promise(resolve => setTimeout(resolve, 500)); // Wait after clearing
         await addressLine1Input.sendKeys(addressInfo.addressLine1);
         console.log('Filled address line 1');
 
@@ -517,7 +581,7 @@ async function fillPaymentForm() {
         }
 
       } catch (error) {
-        console.error('Error filling address information:', error);
+        console.error('Error handling country and address information:', error);
       }
 
       // Try to find and click submit button
