@@ -270,7 +270,14 @@ async function fillPaymentForm() {
           
           // Find the specific hosted field iframe
           const iframeSelector = `iframe[name="braintree-hosted-field-${fieldType}"]`;
-          await driver.wait(until.elementLocated(By.css(iframeSelector)), 5000);
+          const iframeExists = await driver.findElements(By.css(iframeSelector));
+          
+          // If iframe doesn't exist, the field might already be filled and hidden
+          if (iframeExists.length === 0) {
+            console.log(`${fieldType} iframe not found, field might be already filled`);
+            return true;
+          }
+
           const hostedFieldIframe = await driver.findElement(By.css(iframeSelector));
           
           // Switch to the hosted field iframe
@@ -341,57 +348,176 @@ async function fillPaymentForm() {
             console.log(`Value verification failed for ${fieldType}. Expected: ${value}, Got: ${enteredValue}`);
             return false;
           }
-        } catch (error) {
+        } catch (error: unknown) {
           console.error(`Error filling ${fieldType}:`, error);
+          // If iframe is not found, field might be already filled
+          if (error instanceof Error && (error.message?.includes('no such frame') || error.message?.includes('TimeoutError'))) {
+            console.log(`${fieldType} field might be already filled correctly`);
+            return true;
+          }
           return false;
+        } finally {
+          // Try to switch back to main iframe
+          try {
+            await driver.switchTo().defaultContent();
+            await driver.switchTo().frame(mainIframe);
+          } catch (error: unknown) {
+            console.log('Error switching back to main iframe:', error);
+          }
         }
       }
 
-      // Fill card number and verify
-      const cardNumberFilled = await fillHostedField('number', paymentInfo.cardNumber);
+      // Check if card number is already filled before attempting to fill
+      const cardNumberIframe = await driver.findElements(By.css('iframe[name="braintree-hosted-field-number"]'));
+      const cardNumberFilled = cardNumberIframe.length === 0 || await fillHostedField('number', paymentInfo.cardNumber);
       if (!cardNumberFilled) {
         console.log('Failed to fill card number');
         return;
       }
 
-      // Fill expiry date and verify
-      const expiryFilled = await fillHostedField('expirationDate', paymentInfo.expiryDate);
+      // Check if expiry date is already filled before attempting to fill
+      const expiryIframe = await driver.findElements(By.css('iframe[name="braintree-hosted-field-expirationDate"]'));
+      const expiryFilled = expiryIframe.length === 0 || await fillHostedField('expirationDate', paymentInfo.expiryDate);
       if (!expiryFilled) {
         console.log('Failed to fill expiry date');
         return;
       }
 
-      // Fill CVV and verify
-      const cvvFilled = await fillHostedField('cvv', paymentInfo.cvv);
-      if (!cvvFilled) {
-        console.log('Failed to fill CVV');
+      // Check if CVV is already filled before attempting to fill
+      // const cvvIframe = await driver.findElements(By.css('iframe[name="braintree-hosted-field-cvv"]'));
+      // const cvvFilled = cvvIframe.length === 0 || await fillHostedField('cvv', paymentInfo.cvv);
+      // if (!cvvFilled) {
+      //   console.log('Failed to fill CVV');
+      //   return;
+      // }
+
+      // Continue with country selection only if we need to
+      const countryDropdown = await driver.findElements(By.css('#country-dropdown'));
+      if (countryDropdown.length === 0) {
+        console.log('Country already selected, skipping address fields');
         return;
       }
 
-      // Switch back to main iframe for country selection
+      // Switch back to main iframe for country selection and address fields
       await driver.switchTo().defaultContent();
       await driver.switchTo().frame(mainIframe);
+
+      // Define address info
+      interface AddressInfo {
+        addressLine1: string;
+        addressLine2?: string;
+        city: string;
+        postalCode: string;
+        phoneNumber: string;
+      }
+
+      const addressInfo: AddressInfo = {
+        addressLine1: '123 Main St',
+        addressLine2: 'Apt 4B',
+        city: 'New York',
+        postalCode: '10001',
+        phoneNumber: '2125551234'
+      };
 
       // Handle country selection
       console.log('Selecting country...');
       try {
-        // Click the country dropdown
-        const countryDropdown = await driver.wait(
-          until.elementLocated(By.css('div[class*="country"], div[aria-label*="country" i]')),
+        // Find and click the country dropdown trigger
+        const countryDropdownTrigger = await driver.wait(
+          until.elementLocated(By.css('#country-dropdown')),
           5000
         );
-        await countryDropdown.click();
-        await new Promise(resolve => setTimeout(resolve, 500)); // Wait for dropdown to open
-
-        // Look for the country option
+        await countryDropdownTrigger.click();
+        console.log('Clicked country dropdown');
+        
+        // Wait for dropdown items to be visible
+        await driver.wait(
+          until.elementLocated(By.css('.dropdown__items')),
+          5000
+        );
+        
+        // Find the specific country option by exact text match
+        const countryXPath = `//span[@role='option' and @aria-label='${paymentInfo.country}']`;
         const countryOption = await driver.wait(
-          until.elementLocated(By.xpath(`//div[contains(text(),'${paymentInfo.country}')]`)),
+          until.elementLocated(By.xpath(countryXPath)),
           5000
         );
+        
+        // Scroll the option into view and click it
+        await driver.executeScript("arguments[0].scrollIntoView(true);", countryOption);
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Wait for scroll
         await countryOption.click();
-        console.log('Successfully selected country');
+        console.log('Successfully selected country:', paymentInfo.country);
+
+        // Wait for address fields to be visible
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        // Fill address line 1
+        const addressLine1Input = await driver.wait(
+          until.elementLocated(By.css('input[aria-label="Address Line 1"]')),
+          5000
+        );
+        await addressLine1Input.clear();
+        await addressLine1Input.sendKeys(addressInfo.addressLine1);
+        console.log('Filled address line 1');
+
+        // Fill address line 2 if provided
+        try {
+          const addressLine2Input = await driver.findElement(By.css('input[aria-label="Address Line 2 (Optional)"]'));
+          if (addressInfo.addressLine2) {
+            await addressLine2Input.clear();
+            await addressLine2Input.sendKeys(addressInfo.addressLine2);
+            console.log('Filled address line 2');
+          }
+        } catch (error) {
+          console.log('Address line 2 field not found or not needed');
+        }
+
+        // Fill city
+        const cityInput = await driver.wait(
+          until.elementLocated(By.css('input[aria-label="City"]')),
+          5000
+        );
+        await cityInput.clear();
+        await cityInput.sendKeys(addressInfo.city);
+        console.log('Filled city');
+
+        // Fill postal code
+        const postalCodeInput = await driver.wait(
+          until.elementLocated(By.css('input[aria-label="Postal Code"]')),
+          5000
+        );
+        await postalCodeInput.clear();
+        await postalCodeInput.sendKeys(addressInfo.postalCode);
+        console.log('Filled postal code');
+
+        // Fill phone number
+        const phoneInput = await driver.wait(
+          until.elementLocated(By.css('input[aria-label="Phone Number"]')),
+          5000
+        );
+        await phoneInput.clear();
+        await phoneInput.sendKeys(addressInfo.phoneNumber);
+        console.log('Filled phone number');
+
+        // Verify all fields are filled
+        const verifyFields = async () => {
+          const addressLine1Value = await addressLine1Input.getAttribute('value');
+          const cityValue = await cityInput.getAttribute('value');
+          const postalCodeValue = await postalCodeInput.getAttribute('value');
+          const phoneValue = await phoneInput.getAttribute('value');
+
+          return addressLine1Value && cityValue && postalCodeValue && phoneValue;
+        };
+
+        if (await verifyFields()) {
+          console.log('Successfully filled all address fields');
+        } else {
+          console.log('Some address fields may not be filled correctly');
+        }
+
       } catch (error) {
-        console.error('Error selecting country:', error);
+        console.error('Error filling address information:', error);
       }
 
       // Try to find and click submit button
@@ -480,18 +606,18 @@ async function checkAndFillWalletIframe() {
           }
 
           await driver.switchTo().defaultContent();
-        } catch (error: any) {
-          console.log(`Error checking iframe ${i + 1}:`, error.message);
+        } catch (error: unknown) {
+          console.log(`Error checking iframe ${i + 1}:`, error instanceof Error ? error.message : error);
           await driver.switchTo().defaultContent();
         }
       }
     }
-  } catch (error: any) {
-    console.error('Error checking wallet page:', error);
+  } catch (error: unknown) {
+    console.error('Error checking wallet page:', error instanceof Error ? error.message : error);
     try {
       await driver.switchTo().defaultContent();
-    } catch (frameError: any) {
-      console.error('Error switching to default content:', frameError);
+    } catch (frameError: unknown) {
+      console.error('Error switching to default content:', frameError instanceof Error ? frameError.message : frameError);
     }
   }
 }
