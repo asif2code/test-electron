@@ -6,34 +6,28 @@
         body {
             font-family: Arial, sans-serif;
             margin: 0;
-            padding: 0;
+            padding: 20px;
             background-color: #f0f0f0;
-            height: 100vh;
-            display: flex;
-            flex-direction: column;
         }
         .header {
-            padding: 10px 20px;
-            background-color: white;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            z-index: 100;
+            margin-bottom: 20px;
         }
         button {
-            background-color: #1db954;
+            background-color: #026cdf;
             color: white;
             border: none;
-            padding: 8px 16px;
+            padding: 10px 20px;
             border-radius: 4px;
             cursor: pointer;
             font-size: 14px;
             transition: background-color 0.3s;
         }
         button:hover {
-            background-color: #1ed760;
+            background-color: #0256b0;
         }
-        .status {
-            margin-left: 20px;
-            display: inline-block;
+        #status {
+            margin-left: 15px;
+            color: #666;
         }
         .webview-container {
             flex: 1;
@@ -49,7 +43,7 @@
 <body>
     <div class="header">
         <button id="gotoTicketmaster">Go to Ticketmaster</button>
-        <span class="status" id="status">Status: Ready</span>
+        <span id="status">Status: Ready</span>
     </div>
     <div class="webview-container">
         <webview id="ticketmasterView" 
@@ -60,7 +54,8 @@
     </div>
     <script>
         const { ipcRenderer } = require('electron');
-        const statusDiv = document.getElementById('status');
+        const statusElement = document.getElementById('status');
+        const button = document.getElementById('gotoTicketmaster');
         const webview = document.getElementById('ticketmasterView');
         
         // Set additional webview properties
@@ -75,18 +70,31 @@
 
         // Auto-load Ticketmaster when the page loads
         window.addEventListener('load', () => {
-            statusDiv.textContent = 'Status: Opening Ticketmaster...';
+            statusElement.textContent = 'Status: Opening Ticketmaster...';
             webview.src = 'https://www.ticketmaster.com';
         });
 
-        document.getElementById('gotoTicketmaster').addEventListener('click', () => {
-            statusDiv.textContent = 'Status: Opening Ticketmaster...';
-            webview.src = 'https://www.ticketmaster.com';
-        });
-
-        // Listen for status updates
-        ipcRenderer.on('status-update', (event, message) => {
-            statusDiv.textContent = 'Status: ' + message;
+        // Handle button click
+        button.addEventListener('click', async () => {
+            try {
+                statusElement.textContent = 'Status: Opening Ticketmaster...';
+                button.disabled = true;
+                
+                // Send message to main process
+                ipcRenderer.send('goto-ticketmaster');
+                
+                // Listen for status updates
+                ipcRenderer.on('navigation-status', (event, message) => {
+                    statusElement.textContent = 'Status: ' + message;
+                    if (message.includes('Successfully') || message.includes('Error')) {
+                        button.disabled = false;
+                    }
+                });
+            } catch (error) {
+                console.error('Error:', error);
+                statusElement.textContent = 'Status: Error occurred';
+                button.disabled = false;
+            }
         });
 
         // Monitor URL changes

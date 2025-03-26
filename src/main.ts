@@ -311,20 +311,36 @@ ipcMain.on('goto-ticketmaster', async () => {
   try {
     if (!isSeleniumReady || !driver) {
       console.log('Reinitializing Selenium...');
+      mainWindow?.webContents.send('navigation-status', 'Initializing browser...');
       isSeleniumReady = await initializeSelenium();
     }
     
     if (isSeleniumReady && driver) {
       console.log('Navigating to Ticketmaster...');
-      await driver.get('https://www.ticketmaster.com');
-      console.log('Successfully navigated to Ticketmaster');
+      mainWindow?.webContents.send('navigation-status', 'Navigating to Ticketmaster...');
+      
+      try {
+        await driver.get('https://www.ticketmaster.com');
+        console.log('Successfully navigated to Ticketmaster');
+        mainWindow?.webContents.send('navigation-status', 'Successfully navigated to Ticketmaster');
+      } catch (navError) {
+        console.error('Navigation error:', navError);
+        mainWindow?.webContents.send('navigation-status', 'Error navigating to Ticketmaster');
+        
+        // Try to reinitialize and navigate again
+        isSeleniumReady = await initializeSelenium();
+        if (isSeleniumReady && driver) {
+          await driver.get('https://www.ticketmaster.com');
+          mainWindow?.webContents.send('navigation-status', 'Successfully navigated to Ticketmaster');
+        }
+      }
     } else {
       console.error('Selenium is not ready');
+      mainWindow?.webContents.send('navigation-status', 'Error: Browser not ready');
     }
   } catch (error) {
-    console.error('Error navigating to Ticketmaster:', error);
-    // Try to reinitialize on error
-    isSeleniumReady = await initializeSelenium();
+    console.error('Error in goto-ticketmaster handler:', error);
+    mainWindow?.webContents.send('navigation-status', 'Error occurred');
   }
 });
 
