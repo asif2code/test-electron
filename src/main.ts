@@ -142,7 +142,7 @@ async function fillPaymentForm() {
 
     console.log('Starting payment form process...');
 
-    // First switch back to default content to ensure we're starting from the main page
+    // First switch back to default content
     try {
       await driver.switchTo().defaultContent();
       console.log('Switched to default content');
@@ -150,7 +150,7 @@ async function fillPaymentForm() {
       console.log('Error switching to default content:', error);
     }
 
-    // First find the payment div container
+    // Find the payment div container
     console.log('Looking for payment container div...');
     const paymentDivSelectors = [
       'div[id*="payment"]',
@@ -176,28 +176,19 @@ async function fillPaymentForm() {
       return;
     }
 
-    // Now find the iframe within the payment div using tag name
-    console.log('Looking for iframe within payment container...');
+    // Find and switch to main payment iframe
+    console.log('Looking for main payment iframe...');
     try {
-      // Wait for iframe to be present within the payment div
       await driver.wait(async () => {
         const iframes = await paymentDiv.findElements(By.tagName('iframe'));
         return iframes.length > 0;
-      }, 5000, 'Timeout waiting for iframe');
+      }, 5000, 'Timeout waiting for main iframe');
 
-      const iframes = await paymentDiv.findElements(By.tagName('iframe'));
-      console.log(`Found ${iframes.length} iframes in payment container`);
+      const mainIframe = await paymentDiv.findElement(By.tagName('iframe'));
+      await driver.switchTo().frame(mainIframe);
+      console.log('Successfully switched to main payment iframe');
 
-      if (iframes.length === 0) {
-        console.log('No iframes found in payment container');
-        return;
-      }
-
-      // Switch to the first iframe found
-      await driver.switchTo().frame(iframes[0]);
-      console.log('Successfully switched to payment iframe');
-
-      // Define payment info type
+      // Define payment info
       interface PaymentInfo {
         cardName: string;
         cardNumber: string;
@@ -206,68 +197,89 @@ async function fillPaymentForm() {
         country: string;
       }
 
-      // Payment information
       const paymentInfo: PaymentInfo = {
         cardName: 'John Doe',
-        cardNumber: '4111111111111111',
+        cardNumber: '4242424242424242',
         expiryDate: '1225',
-        cvv: '123',
+        cvv: '424',
         country: 'United States'
       };
 
-      // Now try to fill the form fields
-      const fieldSelectors = {
-        cardName: [
-          '[name="cardholderName"]',
-          '[placeholder*="name"]',
-          '[aria-label*="name"]',
-          '#cardholderName',
-          'input[name*="name"]'
-        ],
-        cardNumber: [
-          '[name="cardNumber"]',
-          '[placeholder*="card number"]',
-          '[aria-label*="card number"]',
-          '#cardNumber',
-          'input[name*="card"]'
-        ],
-        expiryDate: [
-          '[name="expiryDate"]',
-          '[placeholder*="expiry"]',
-          '[aria-label*="expiration"]',
-          '#expiryDate',
-          'input[name*="expiry"]'
-        ],
-        cvv: [
-          '[name="securityCode"]',
-          '[placeholder*="CVV"]',
-          '[aria-label*="security code"]',
-          '#cvv',
-          'input[name*="cvv"]'
-        ]
-      };
+      // Fill card name first
+      console.log('Filling card name...');
+      const cardNameSelectors = [
+        'input[name="cardholderName"]',
+        'input[placeholder*="name" i]',
+        'input[aria-label*="name" i]',
+        '#cardholderName',
+        'input[name*="name" i]',
+        'input[autocomplete="cc-name"]'
+      ];
 
-      // Fill each field
-      for (const [field, selectors] of Object.entries(fieldSelectors)) {
-        let fieldFilled = false;
-        for (const selector of selectors) {
-          try {
-            console.log(`Trying to find ${field} with selector: ${selector}`);
-            const element = await driver.wait(until.elementLocated(By.css(selector)), 2000);
-            await driver.wait(until.elementIsVisible(element), 2000);
-            await element.clear();
-            await element.sendKeys((paymentInfo as any)[field]);
-            console.log(`Successfully filled ${field}`);
-            fieldFilled = true;
-            break;
-          } catch (error) {
-            continue;
-          }
-        }
-        if (!fieldFilled) {
-          console.log(`Could not fill ${field} field`);
+      let cardNameFilled = false;
+      for (const selector of cardNameSelectors) {
+        try {
+          const element = await driver.wait(until.elementLocated(By.css(selector)), 2000);
+          await driver.wait(until.elementIsVisible(element), 2000);
+          await element.clear();
+          await element.sendKeys(paymentInfo.cardName);
+          console.log('Successfully filled card name');
+          cardNameFilled = true;
+          break;
+        } catch (error) {
+          continue;
         }
       }
+
+      // Function to fill a hosted field
+      async function fillHostedField(fieldType: string, value: string) {
+        try {
+          // Switch back to main iframe first
+          await driver.switchTo().defaultContent();
+          await driver.switchTo().frame(mainIframe);
+          
+          // Find the specific hosted field iframe
+          const iframeSelector = `iframe[name="braintree-hosted-field-${fieldType}"]`;
+          await driver.wait(until.elementLocated(By.css(iframeSelector)), 5000);
+          const hostedFieldIframe = await driver.findElement(By.css(iframeSelector));
+          
+          // Switch to the hosted field iframe
+          await driver.switchTo().frame(hostedFieldIframe);
+          console.log(`Switched to ${fieldType} iframe`);
+
+          // Find and fill the input
+          const input = await driver.wait(
+            until.elementLocated(By.css('input[type="tel"], input[type="text"], input[type="number"]')),
+            5000
+          );
+          await input.clear();
+          
+          // Type value with delay
+          for (const char of value) {
+            await input.sendKeys(char);
+            await new Promise(resolve => setTimeout(resolve, 50));
+          }
+          
+          console.log(`Successfully filled ${fieldType}`);
+          return true;
+        } catch (error) {
+          console.error(`Error filling ${fieldType}:`, error);
+          return false;
+        }
+      }
+
+      // Fill card number
+      await fillHostedField('number', paymentInfo.cardNumber);
+
+      // Fill expiry date
+      await fillHostedField('expirationDate', paymentInfo.expiryDate);
+
+      // Fill CVV
+      await fillHostedField('cvv', paymentInfo.cvv);
+
+      // Switch back to main iframe for submit button
+      await driver.switchTo().defaultContent();
+      await driver.switchTo().frame(mainIframe);
 
       // Try to find and click submit button
       const buttonSelectors = [
@@ -298,7 +310,7 @@ async function fillPaymentForm() {
       }
 
     } catch (error) {
-      console.error('Error handling payment iframe:', error);
+      console.error('Error in payment form process:', error);
     }
 
   } catch (error) {
