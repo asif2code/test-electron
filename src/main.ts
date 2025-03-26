@@ -4,6 +4,18 @@ import { Builder, By, Key, until } from 'selenium-webdriver';
 import 'chromedriver';
 import { Options } from 'selenium-webdriver/chrome';
 
+// Enable hot reload for development
+if (process.env.NODE_ENV !== 'production') {
+  try {
+    require('electron-reloader')(module, {
+      debug: true,
+      watchRenderer: true
+    });
+  } catch (err) {
+    console.log('Error enabling hot reload:', err);
+  }
+}
+
 let mainWindow: BrowserWindow | null = null;
 let driver: any = null;
 
@@ -18,6 +30,18 @@ async function createWindow() {
   });
 
   await mainWindow.loadFile(path.join(__dirname, '../src/index.html'));
+  
+  // Initialize Selenium and navigate to Ticketmaster
+  isSeleniumReady = await initializeSelenium();
+  if (isSeleniumReady && driver) {
+    try {
+      console.log('Navigating to Ticketmaster...');
+      await driver.get('https://www.ticketmaster.com');
+      console.log('Successfully navigated to Ticketmaster');
+    } catch (error) {
+      console.error('Error navigating to Ticketmaster:', error);
+    }
+  }
 }
 
 async function initializeSelenium() {
@@ -79,22 +103,53 @@ async function checkAndFillWalletIframe() {
 
     const currentUrl = await driver.getCurrentUrl();
     console.log('Current URL:', currentUrl);
-    if (currentUrl.includes('wallet') || currentUrl.includes('member/edit_billing') || currentUrl.includes('edit_billing')) {
+    
+    // Fixed the condition to properly check multiple URLs
+    if (currentUrl.includes('wallet') || 
+        currentUrl.includes('member/edit_billing') || 
+        currentUrl.includes('edit_billing')) {
       console.log('Detected wallet page, checking for iframe...');
       
       try {
-        // Check if iframe exists
+        // Wait for iframes to be present
+        await driver.wait(until.elementsLocated(By.css('iframe')), 10000);
         const iframes = await driver.findElements(By.css('iframe'));
+        
         if (iframes.length > 0) {
-          console.log('Found iframe, attempting to fill payment information...');
-          await fillPaymentForm();
+          console.log(`Found ${iframes.length} iframes, attempting to fill payment information...`);
+          
+          // Try each iframe until we find the payment form
+          for (let i = 0; i < iframes.length; i++) {
+            try {
+              await driver.switchTo().frame(iframes[i]);
+              
+              // Check if this iframe contains payment form elements
+              const formElements = await driver.findElements(By.css('input[placeholder*="Card"]'));
+              if (formElements.length > 0) {
+                console.log(`Found payment form in iframe ${i + 1}`);
+                await fillPaymentForm();
+                break;
+              }
+              
+              // Switch back to main content if this isn't the right iframe
+              await driver.switchTo().defaultContent();
+            } catch (error: any) {
+              console.log(`Error checking iframe ${i + 1}:`, error.message);
+              await driver.switchTo().defaultContent();
+            }
+          }
         }
-      } catch (error) {
-        console.log('No payment iframe found');
+      } catch (error: any) {
+        console.log('No payment iframe found:', error.message);
       }
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error checking wallet page:', error);
+    try {
+      await driver.switchTo().defaultContent();
+    } catch (frameError: any) {
+      console.error('Error switching to default content:', frameError);
+    }
   }
 }
 
@@ -158,34 +213,30 @@ async function fillPaymentForm() {
   }
 }
 
-app.whenReady().then(async () => {
-  await createWindow();
-  isSeleniumReady = await initializeSelenium();
-
-  if (driver) {
-    try {
-      // Set up URL change listener
-      await driver.executeScript(`
-        let lastUrl = window.location.href;
-        new MutationObserver(() => {
-          const url = window.location.href;
-          if (url !== lastUrl) {
-            lastUrl = url;
-            window.dispatchEvent(new CustomEvent('urlChanged', { detail: url }));
-          }
-        }).observe(document, { subtree: true, childList: true });
-      `);
-    } catch (error) {
-      console.error('Error setting up URL listener:', error);
+// Update the IPC handler for manual navigation
+ipcMain.on('goto-ticketmaster', async () => {
+  try {
+    if (!isSeleniumReady || !driver) {
+      console.log('Reinitializing Selenium...');
+      isSeleniumReady = await initializeSelenium();
     }
+    
+    if (isSeleniumReady && driver) {
+      console.log('Navigating to Ticketmaster...');
+      await driver.get('https://www.ticketmaster.com');
+      console.log('Successfully navigated to Ticketmaster');
+    } else {
+      console.error('Selenium is not ready');
+    }
+  } catch (error) {
+    console.error('Error navigating to Ticketmaster:', error);
+    // Try to reinitialize on error
+    isSeleniumReady = await initializeSelenium();
   }
-
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
-    }
-  });
 });
+
+// Add app ready handler
+app.whenReady().then(createWindow).catch(console.error);
 
 app.on('window-all-closed', async () => {
   if (process.platform !== 'darwin') {
@@ -200,22 +251,9 @@ app.on('window-all-closed', async () => {
   }
 });
 
-ipcMain.on('goto-ticketmaster', async () => {
-  try {
-    if (!isSeleniumReady || !driver) {
-      console.log('Reinitializing Selenium...');
-      isSeleniumReady = await initializeSelenium();
-    }
-    
-    if (isSeleniumReady && driver) {
-      await driver.get('https://www.ticketmaster.com');
-      console.log('Successfully navigated to Ticketmaster');
-    } else {
-      console.error('Selenium is not ready');
-    }
-  } catch (error) {
-    console.error('Error navigating to Ticketmaster:', error);
-    isSeleniumReady = await initializeSelenium();
+app.on('activate', () => {
+  if (BrowserWindow.getAllWindows().length === 0) {
+    createWindow();
   }
 });
 
