@@ -1,0 +1,22 @@
+{
+  "name": "selenium-electron-app",
+  "version": "1.0.0",
+  "description": "Electron app with Selenium WebDriver automation",
+  "main": "dist/main.js",
+  "scripts": {
+    "start": "tsc && electron .",
+    "build": "tsc",
+    "watch": "tsc -w"
+  },
+  "dependencies": {
+    "chromedriver": "^134.0.5",
+    "geckodriver": "^5.0.0",
+    "selenium-webdriver": "^4.18.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.19",
+    "@types/selenium-webdriver": "^4.1.21",
+    "electron": "^29.1.0",
+    "typescript": "^5.3.3"
+  }
+}

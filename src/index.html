@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Ticketmaster Automation</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f0f0f0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        .header {
+            padding: 10px 20px;
+            background-color: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            z-index: 100;
+        }
+        button {
+            background-color: #1db954;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #1ed760;
+        }
+        .status {
+            margin-left: 20px;
+            display: inline-block;
+        }
+        .webview-container {
+            flex: 1;
+            position: relative;
+        }
+        #ticketmasterView {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <button id="gotoTicketmaster">Go to Ticketmaster</button>
+        <span class="status" id="status">Status: Ready</span>
+    </div>
+    <div class="webview-container">
+        <webview id="ticketmasterView" 
+                 webpreferences="nodeIntegration=true"
+                 allowpopups></webview>
+    </div>
+    <script>
+        const { ipcRenderer } = require('electron');
+        const statusDiv = document.getElementById('status');
+        const webview = document.getElementById('ticketmasterView');
+        
+        document.getElementById('gotoTicketmaster').addEventListener('click', () => {
+            statusDiv.textContent = 'Status: Opening Ticketmaster...';
+            webview.src = 'https://www.ticketmaster.com';
+        });
+
+        // Listen for status updates
+        ipcRenderer.on('status-update', (event, message) => {
+            statusDiv.textContent = 'Status: ' + message;
+        });
+
+        // Monitor URL changes
+        webview.addEventListener('did-navigate', (event) => {
+            const url = event.url;
+            if (url.includes('wallet')) {
+                ipcRenderer.send('check-wallet-page');
+            }
+        });
+
+        // Handle webview load
+        webview.addEventListener('dom-ready', () => {
+            // Enable DevTools for debugging if needed
+            // webview.openDevTools();
+        });
+    </script>
+</body>
+</html> 
