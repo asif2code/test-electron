@@ -205,8 +205,25 @@ async function fillPaymentForm() {
         country: 'United States'
       };
 
+      // Function to check if a field needs updating
+      async function checkFieldValue(element: any, expectedValue: string): Promise<boolean> {
+        try {
+          const currentValue = await element.getAttribute('value');
+          // Handle expiry date format (1225 vs 12/25)
+          if (expectedValue.length === 4 && currentValue.includes('/')) {
+            const [month, year] = currentValue.split('/');
+            const formattedCurrent = `${month.trim()}${year.trim()}`;
+            return formattedCurrent === expectedValue;
+          }
+          return currentValue === expectedValue || 
+                 (currentValue.replace(/\s/g, '') === expectedValue.replace(/\s/g, ''));
+        } catch (error) {
+          return false;
+        }
+      }
+
       // Fill card name first
-      console.log('Filling card name...');
+      console.log('Checking and filling card name...');
       const cardNameSelectors = [
         'input[name="cardholderName"]',
         'input[placeholder*="name" i]',
@@ -221,6 +238,14 @@ async function fillPaymentForm() {
         try {
           const element = await driver.wait(until.elementLocated(By.css(selector)), 2000);
           await driver.wait(until.elementIsVisible(element), 2000);
+          
+          // Check if field already has correct value
+          if (await checkFieldValue(element, paymentInfo.cardName)) {
+            console.log('Card name already correct');
+            cardNameFilled = true;
+            break;
+          }
+
           await element.clear();
           await element.sendKeys(paymentInfo.cardName);
           console.log('Successfully filled card name');
@@ -231,8 +256,13 @@ async function fillPaymentForm() {
         }
       }
 
+      if (!cardNameFilled) {
+        console.log('Could not fill card name');
+        return; // Stop if we can't fill the name
+      }
+
       // Function to fill a hosted field
-      async function fillHostedField(fieldType: string, value: string) {
+      async function fillHostedField(fieldType: string, value: string): Promise<boolean> {
         try {
           // Switch back to main iframe first
           await driver.switchTo().defaultContent();
@@ -247,39 +277,122 @@ async function fillPaymentForm() {
           await driver.switchTo().frame(hostedFieldIframe);
           console.log(`Switched to ${fieldType} iframe`);
 
-          // Find and fill the input
+          // Find the input
           const input = await driver.wait(
             until.elementLocated(By.css('input[type="tel"], input[type="text"], input[type="number"]')),
             5000
           );
+
+          // Get current value
+          const currentValue = await input.getAttribute('value');
+          console.log(`Current value for ${fieldType}: ${currentValue}`);
+
+          // Special handling for expiry date
+          if (fieldType === 'expirationDate' && currentValue.includes('/')) {
+            const [month, year] = currentValue.split('/');
+            const formattedCurrent = `${month.trim()}${year.trim()}`;
+            if (formattedCurrent === value) {
+              console.log(`${fieldType} already has correct value: ${currentValue}`);
+              return true;
+            }
+          }
+
+          // Check if field already has correct value
+          if (await checkFieldValue(input, value)) {
+            console.log(`${fieldType} already has correct value`);
+            return true;
+          }
+
           await input.clear();
           
           // Type value with delay
-          for (const char of value) {
-            await input.sendKeys(char);
+          if (fieldType === 'expirationDate') {
+            // Format expiry date as MM/YY
+            const month = value.substring(0, 2);
+            const year = value.substring(2);
+            await input.sendKeys(month);
             await new Promise(resolve => setTimeout(resolve, 50));
+            await input.sendKeys(year);
+          } else {
+            for (const char of value) {
+              await input.sendKeys(char);
+              await new Promise(resolve => setTimeout(resolve, 50));
+            }
+          }
+
+          // Verify the value was entered correctly
+          const enteredValue = await input.getAttribute('value');
+          let isCorrect = false;
+
+          if (fieldType === 'expirationDate') {
+            // Compare expiry date in both formats (1225 vs 12/25)
+            const [month, year] = enteredValue.split('/');
+            const formattedEntered = `${month.trim()}${year.trim()}`;
+            isCorrect = formattedEntered === value;
+          } else {
+            isCorrect = enteredValue === value || 
+                       (fieldType === 'number' && enteredValue.replace(/\s/g, '') === value);
           }
           
-          console.log(`Successfully filled ${fieldType}`);
-          return true;
+          if (isCorrect) {
+            console.log(`Successfully filled ${fieldType}`);
+            return true;
+          } else {
+            console.log(`Value verification failed for ${fieldType}. Expected: ${value}, Got: ${enteredValue}`);
+            return false;
+          }
         } catch (error) {
           console.error(`Error filling ${fieldType}:`, error);
           return false;
         }
       }
 
-      // Fill card number
-      await fillHostedField('number', paymentInfo.cardNumber);
+      // Fill card number and verify
+      const cardNumberFilled = await fillHostedField('number', paymentInfo.cardNumber);
+      if (!cardNumberFilled) {
+        console.log('Failed to fill card number');
+        return;
+      }
 
-      // Fill expiry date
-      await fillHostedField('expirationDate', paymentInfo.expiryDate);
+      // Fill expiry date and verify
+      const expiryFilled = await fillHostedField('expirationDate', paymentInfo.expiryDate);
+      if (!expiryFilled) {
+        console.log('Failed to fill expiry date');
+        return;
+      }
 
-      // Fill CVV
-      await fillHostedField('cvv', paymentInfo.cvv);
+      // Fill CVV and verify
+      const cvvFilled = await fillHostedField('cvv', paymentInfo.cvv);
+      if (!cvvFilled) {
+        console.log('Failed to fill CVV');
+        return;
+      }
 
-      // Switch back to main iframe for submit button
+      // Switch back to main iframe for country selection
       await driver.switchTo().defaultContent();
       await driver.switchTo().frame(mainIframe);
+
+      // Handle country selection
+      console.log('Selecting country...');
+      try {
+        // Click the country dropdown
+        const countryDropdown = await driver.wait(
+          until.elementLocated(By.css('div[class*="country"], div[aria-label*="country" i]')),
+          5000
+        );
+        await countryDropdown.click();
+        await new Promise(resolve => setTimeout(resolve, 500)); // Wait for dropdown to open
+
+        // Look for the country option
+        const countryOption = await driver.wait(
+          until.elementLocated(By.xpath(`//div[contains(text(),'${paymentInfo.country}')]`)),
+          5000
+        );
+        await countryOption.click();
+        console.log('Successfully selected country');
+      } catch (error) {
+        console.error('Error selecting country:', error);
+      }
 
       // Try to find and click submit button
       const buttonSelectors = [
@@ -287,13 +400,14 @@ async function fillPaymentForm() {
         'button:contains("Save")',
         'button:contains("Add Card")',
         'button.submit-button',
-        'input[type="submit"]'
+        'input[type="submit"]',
+        'button[class*="save"]'
       ];
 
       let buttonClicked = false;
       for (const selector of buttonSelectors) {
         try {
-          const button = await driver.findElement(By.css(selector));
+          const button = await driver.wait(until.elementLocated(By.css(selector)), 2000);
           if (await button.isDisplayed() && await button.isEnabled()) {
             await button.click();
             console.log('Successfully clicked submit button');
