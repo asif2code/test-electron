@@ -407,6 +407,7 @@ async function fillPaymentForm() {
         addressLine1: string;
         addressLine2?: string;
         city: string;
+        state: string;
         postalCode: string;
         phoneNumber: string;
       }
@@ -415,6 +416,7 @@ async function fillPaymentForm() {
         addressLine1: '123 Main St',
         addressLine2: 'Apt 4B',
         city: 'New York',
+        state: 'NY',
         postalCode: '10001',
         phoneNumber: '2125551234'
       };
@@ -538,13 +540,88 @@ async function fillPaymentForm() {
         }
 
         // Fill city
-        const cityInput = await driver.wait(
-          until.elementLocated(By.css('input[aria-label="City"]')),
-          5000
-        );
-        await cityInput.clear();
-        await cityInput.sendKeys(addressInfo.city);
-        console.log('Filled city');
+        console.log('Filling city...');
+        const citySelectors = [
+          'input[id="city"]',
+          'input[name="city"]',
+          'input[autocomplete="address-level2"]',
+          'input[aria-describedby="city_error"]'
+        ];
+
+        let cityInput = null;
+        for (const selector of citySelectors) {
+          try {
+            cityInput = await driver.wait(
+              until.elementLocated(By.css(selector)),
+              5000
+            );
+            console.log(`Found city input with selector: ${selector}`);
+            break;
+          } catch (error) {
+            console.log(`City input not found with selector: ${selector}`);
+            continue;
+          }
+        }
+
+        if (!cityInput) {
+          console.log('Could not find city input field');
+          return;
+        }
+
+        const currentCity = await cityInput.getAttribute('value');
+        if (currentCity !== addressInfo.city) {
+          await cityInput.clear();
+          await new Promise(resolve => setTimeout(resolve, 500)); // Wait after clearing
+          await cityInput.sendKeys(addressInfo.city);
+          console.log('Filled city');
+        } else {
+          console.log('City already correctly filled');
+        }
+
+        // Handle state selection
+        console.log('Handling state selection...');
+        try {
+          // Find and click the state dropdown trigger
+          const stateDropdownTrigger = await driver.wait(
+            until.elementLocated(By.css('#state-dropdown')),
+            5000
+          );
+
+          // Check if state is already selected
+          const stateInput = await driver.findElement(By.css('input[name="state"]'));
+          const currentState = await stateInput.getAttribute('value');
+          
+          if (currentState !== addressInfo.state) {
+            await stateDropdownTrigger.click();
+            console.log('Clicked state dropdown');
+            
+            // Wait for dropdown items to be visible
+            await driver.wait(
+              until.elementLocated(By.css('.dropdown__items')),
+              5000
+            );
+            
+            // Find the specific state option by value attribute or aria-label
+            const stateXPath = `//span[@role='option' and (@value='${addressInfo.state}' or @aria-label='${addressInfo.state === 'NY' ? 'New York' : addressInfo.state}')]`;
+            const stateOption = await driver.wait(
+              until.elementLocated(By.xpath(stateXPath)),
+              5000
+            );
+            
+            // Scroll the option into view and click it
+            await driver.executeScript("arguments[0].scrollIntoView(true);", stateOption);
+            await new Promise(resolve => setTimeout(resolve, 500)); // Wait for scroll
+            await stateOption.click();
+            console.log('Successfully selected state:', addressInfo.state);
+
+            // Wait for dropdown to close
+            await new Promise(resolve => setTimeout(resolve, 500));
+          } else {
+            console.log('State already correctly selected');
+          }
+        } catch (error) {
+          console.error('Error selecting state:', error);
+        }
 
         // Fill postal code
         const postalCodeInput = await driver.wait(
