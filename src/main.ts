@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain } from 'electron';
 import * as path from 'path';
 import { Builder, By, Key, until } from 'selenium-webdriver';
 import 'chromedriver';
+import { Options } from 'selenium-webdriver/chrome';
 
 let mainWindow: BrowserWindow | null = null;
 let driver: any = null;
@@ -21,9 +22,45 @@ async function createWindow() {
 
 async function initializeSelenium() {
   try {
+    const options = new Options();
+    
+    // Add stealth settings
+    const args = [
+      '--disable-blink-features=AutomationControlled',
+      '--disable-infobars',
+      '--window-size=1920,1080',
+      '--start-maximized',
+      '--disable-dev-shm-usage',
+      '--no-sandbox',
+      '--disable-gpu',
+      '--disable-notifications',
+      '--disable-popup-blocking',
+      '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+    ];
+    
+    args.forEach(arg => options.addArguments(arg));
+
+    // Exclude automation flags
+    options.excludeSwitches('enable-automation');
+    
+    // Add experimental options
+    options.addArguments('--disable-automation');
+
     driver = await new Builder()
       .forBrowser('chrome')
+      .setChromeOptions(options)
       .build();
+
+    // Additional stealth settings via CDP
+    const cdpConnection = await driver.createCDPConnection('page');
+    await cdpConnection.execute('Page.addScriptToEvaluateOnNewDocument', {
+      source: `
+        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+        window.chrome = { runtime: {} };
+        Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+        Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+      `
+    });
 
     console.log('Chrome WebDriver initialized successfully');
     return true;
@@ -41,6 +78,7 @@ async function checkAndFillWalletIframe() {
     if (!driver) return;
 
     const currentUrl = await driver.getCurrentUrl();
+    console.log('Current URL:', currentUrl);
     if (currentUrl.includes('wallet')) {
       console.log('Detected wallet page, checking for iframe...');
       

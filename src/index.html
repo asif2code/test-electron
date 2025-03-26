@@ -54,6 +54,8 @@
     <div class="webview-container">
         <webview id="ticketmasterView" 
                  webpreferences="nodeIntegration=true"
+                 useragent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+                 partition="persist:main"
                  allowpopups></webview>
     </div>
     <script>
@@ -61,6 +63,22 @@
         const statusDiv = document.getElementById('status');
         const webview = document.getElementById('ticketmasterView');
         
+        // Set additional webview properties
+        webview.addEventListener('dom-ready', () => {
+            webview.setZoomFactor(1);
+            webview.executeJavaScript(`
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => false
+                });
+            `);
+        });
+
+        // Auto-load Ticketmaster when the page loads
+        window.addEventListener('load', () => {
+            statusDiv.textContent = 'Status: Opening Ticketmaster...';
+            webview.src = 'https://www.ticketmaster.com';
+        });
+
         document.getElementById('gotoTicketmaster').addEventListener('click', () => {
             statusDiv.textContent = 'Status: Opening Ticketmaster...';
             webview.src = 'https://www.ticketmaster.com';
@@ -77,12 +95,6 @@
             if (url.includes('wallet')) {
                 ipcRenderer.send('check-wallet-page');
             }
-        });
-
-        // Handle webview load
-        webview.addEventListener('dom-ready', () => {
-            // Enable DevTools for debugging if needed
-            // webview.openDevTools();
         });
     </script>
 </body>
