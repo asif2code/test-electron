@@ -96,6 +96,163 @@ async function initializeSelenium() {
 
 let isSeleniumReady = false;
 
+// Function to analyze form structure
+async function analyzeFormStructure() {
+  try {
+    if (!driver) return null;
+
+    // Get page HTML
+    const html = await driver.getPageSource();
+    console.log('Analyzing page structure...');
+    
+    // Log the HTML for analysis
+    console.log('Page HTML:', html);
+
+    // Get all input elements and their attributes
+    const inputElements = await driver.findElements(By.css('input, select, button'));
+    
+    for (const element of inputElements) {
+      try {
+        const tagName = await element.getTagName();
+        const type = await element.getAttribute('type');
+        const name = await element.getAttribute('name');
+        const id = await element.getAttribute('id');
+        const className = await element.getAttribute('class');
+        const ariaLabel = await element.getAttribute('aria-label');
+        
+        console.log('Element found:', {
+          tagName,
+          type,
+          name,
+          id,
+          className,
+          ariaLabel
+        });
+      } catch (error) {
+        console.log('Error getting element attributes:', error);
+      }
+    }
+
+    return html;
+  } catch (error) {
+    console.error('Error analyzing form structure:', error);
+    return null;
+  }
+}
+
+// Function to find element by label text
+async function findElementByLabel(labelText: string) {
+  try {
+    // Try different strategies to find the element
+    const strategies = [
+      // Strategy 1: Find label by exact text and get the associated input
+      async () => {
+        const label = await driver.findElement(By.xpath(`//label[normalize-space(text())="${labelText}"]`));
+        const forAttribute = await label.getAttribute('for');
+        if (forAttribute) {
+          return await driver.findElement(By.id(forAttribute));
+        }
+        // If no 'for' attribute, try finding the next input
+        return await driver.findElement(By.xpath(`//label[normalize-space(text())="${labelText}"]/following::input[1]`));
+      },
+      // Strategy 2: Find input by aria-label
+      async () => await driver.findElement(By.css(`input[aria-label="${labelText}"]`)),
+      // Strategy 3: Find by preceding label text
+      async () => await driver.findElement(By.xpath(`//*[text()="${labelText}"]/following::input[1]`)),
+      // Strategy 4: Find by parent div with label text
+      async () => await driver.findElement(By.xpath(`//div[.//text()="${labelText}"]//input`)),
+      // Strategy 5: Find by nearby text
+      async () => await driver.findElement(By.xpath(`//*[contains(text(), "${labelText}")]/following::input[1]`))
+    ];
+
+    for (const strategy of strategies) {
+      try {
+        const element = await strategy();
+        if (element) {
+          console.log(`Found element for label "${labelText}" using strategy`);
+          return element;
+        }
+      } catch (error) {
+        continue;
+      }
+    }
+    throw new Error(`Could not find element for label "${labelText}"`);
+  } catch (error) {
+    console.error(`Error finding element by label "${labelText}":`, error);
+    return null;
+  }
+}
+
+// Function to fill payment form
+async function fillPaymentForm() {
+  try {
+    if (!driver) return;
+
+    // Payment information (replace with actual test data)
+    const paymentInfo = {
+      cardName: 'John Doe',
+      cardNumber: '4111111111111111',
+      expiryDate: '1225',
+      country: 'United States'
+    };
+
+    console.log('Starting to fill payment form...');
+
+    // First analyze the form structure
+    const formStructure = await analyzeFormStructure();
+    if (!formStructure) {
+      console.log('Could not analyze form structure');
+      return;
+    }
+
+    // Define the fields and their corresponding labels
+    const fields = [
+      { label: 'Name on Card', value: paymentInfo.cardName },
+      { label: 'Card Number', value: paymentInfo.cardNumber },
+      { label: 'Expiration Date', value: paymentInfo.expiryDate }
+    ];
+
+    // Try to fill each field
+    for (const field of fields) {
+      try {
+        const element = await findElementByLabel(field.label);
+        console.log('Found element:', element);
+        if (element) {
+          await driver.executeScript("arguments[0].scrollIntoView(true);", element);
+          await driver.wait(until.elementIsVisible(element), 5000);
+          await element.clear();
+          await element.sendKeys(field.value);
+          console.log(`Successfully filled ${field.label}`);
+        }
+      } catch (error) {
+        console.log(`Failed to fill ${field.label}:`, error);
+      }
+    }
+
+    // Try to find and click save/submit button
+    const buttonTexts = ['Save', 'Submit', 'Continue', 'Add Card'];
+    for (const text of buttonTexts) {
+      try {
+        const buttonElement = await driver.findElement(
+          By.xpath(`//button[contains(text(), "${text}") or .//span[contains(text(), "${text}")]]`)
+        );
+        if (buttonElement && await buttonElement.isDisplayed()) {
+          await driver.executeScript("arguments[0].scrollIntoView(true);", buttonElement);
+          await buttonElement.click();
+          console.log(`Successfully clicked ${text} button`);
+          break;
+        }
+      } catch (error) {
+        console.log(`Could not find or click ${text} button`);
+      }
+    }
+
+    console.log('Form filling attempt completed');
+  } catch (error) {
+    console.error('Error filling payment form:', error);
+  }
+}
+
 // Function to check if we're on a wallet page with an iframe
 async function checkAndFillWalletIframe() {
   try {
@@ -104,43 +261,39 @@ async function checkAndFillWalletIframe() {
     const currentUrl = await driver.getCurrentUrl();
     console.log('Current URL:', currentUrl);
     
-    // Fixed the condition to properly check multiple URLs
     if (currentUrl.includes('wallet') || 
         currentUrl.includes('member/edit_billing') || 
         currentUrl.includes('edit_billing')) {
-      console.log('Detected wallet page, checking for iframe...');
+      console.log('Detected wallet page, analyzing page structure...');
       
-      try {
-        // Wait for iframes to be present
-        await driver.wait(until.elementsLocated(By.css('iframe')), 10000);
-        const iframes = await driver.findElements(By.css('iframe'));
-        
-        if (iframes.length > 0) {
-          console.log(`Found ${iframes.length} iframes, attempting to fill payment information...`);
+      // First try main document
+      const mainFormStructure = await analyzeFormStructure();
+      if (mainFormStructure && mainFormStructure.includes('input')) {
+        await fillPaymentForm();
+        return;
+      }
+
+      // Check iframes if form not found in main document
+      const iframes = await driver.findElements(By.css('iframe'));
+      console.log(`Found ${iframes.length} iframes to check`);
+      
+      for (let i = 0; i < iframes.length; i++) {
+        try {
+          await driver.switchTo().frame(iframes[i]);
+          console.log(`Analyzing iframe ${i + 1}`);
           
-          // Try each iframe until we find the payment form
-          for (let i = 0; i < iframes.length; i++) {
-            try {
-              await driver.switchTo().frame(iframes[i]);
-              
-              // Check if this iframe contains payment form elements
-              const formElements = await driver.findElements(By.css('input[placeholder*="Card"]'));
-              if (formElements.length > 0) {
-                console.log(`Found payment form in iframe ${i + 1}`);
-                await fillPaymentForm();
-                break;
-              }
-              
-              // Switch back to main content if this isn't the right iframe
-              await driver.switchTo().defaultContent();
-            } catch (error: any) {
-              console.log(`Error checking iframe ${i + 1}:`, error.message);
-              await driver.switchTo().defaultContent();
-            }
+          const iframeStructure = await analyzeFormStructure();
+          if (iframeStructure && iframeStructure.includes('input')) {
+            console.log(`Found form elements in iframe ${i + 1}`);
+            await fillPaymentForm();
+            break;
           }
+          
+          await driver.switchTo().defaultContent();
+        } catch (error: any) {
+          console.log(`Error checking iframe ${i + 1}:`, error.message);
+          await driver.switchTo().defaultContent();
         }
-      } catch (error: any) {
-        console.log('No payment iframe found:', error.message);
       }
     }
   } catch (error: any) {
@@ -150,66 +303,6 @@ async function checkAndFillWalletIframe() {
     } catch (frameError: any) {
       console.error('Error switching to default content:', frameError);
     }
-  }
-}
-
-// Function to fill payment form
-async function fillPaymentForm() {
-  try {
-    if (!driver) return;
-
-    // Wait for iframe to be present
-    const iframe = await driver.wait(until.elementLocated(By.css('iframe')), 10000);
-    await driver.switchTo().frame(iframe);
-
-    // Payment information (replace with actual test data)
-    const paymentInfo = {
-      cardName: 'John Doe',
-      cardNumber: '4111111111111111',
-      expiryDate: '1225',
-      phoneNumber: '1234567890',
-      address1: '123 Test Street',
-      address2: 'Apt 4B',
-      city: 'Test City',
-      postalCode: '12345'
-    };
-    console.log("driver", driver)
-
-    // Wait and fill card name
-    const nameField = await driver.wait(until.elementLocated(By.css('input[placeholder*="Name on Card"]')), 5000);
-    await nameField.sendKeys(paymentInfo.cardName);
-
-    // Wait and fill card number
-    const cardNumberField = await driver.wait(until.elementLocated(By.css('input[placeholder*="Card Number"]')), 5000);
-    await cardNumberField.sendKeys(paymentInfo.cardNumber);
-
-    // Wait and fill expiry date
-    const expiryField = await driver.wait(until.elementLocated(By.css('input[placeholder*="MM/YY"]')), 5000);
-    await expiryField.sendKeys(paymentInfo.expiryDate);
-
-    // Fill address fields
-    const addressFields = {
-      'Address Line 1': paymentInfo.address1,
-      'Address Line 2': paymentInfo.address2,
-      'City': paymentInfo.city,
-      'Postal Code': paymentInfo.postalCode,
-      'Phone Number': paymentInfo.phoneNumber
-    };
-
-    for (const [placeholder, value] of Object.entries(addressFields)) {
-      try {
-        const field = await driver.wait(until.elementLocated(By.css(`input[placeholder*="${placeholder}"]`)), 5000);
-        await field.sendKeys(value);
-      } catch (error) {
-        console.log(`Could not find or fill field: ${placeholder}`);
-      }
-    }
-
-    console.log('Successfully filled payment information');
-    await driver.switchTo().defaultContent();
-  } catch (error) {
-    console.error('Error filling payment form:', error);
-    await driver.switchTo().defaultContent();
   }
 }
 
