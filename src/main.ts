@@ -119,15 +119,6 @@ async function analyzeFormStructure() {
         const id = await element.getAttribute('id');
         const className = await element.getAttribute('class');
         const ariaLabel = await element.getAttribute('aria-label');
-
-        // console.log('Element found:', {
-        //   tagName,
-        //   type,
-        //   name,
-        //   id,
-        //   className,
-        //   ariaLabel
-        // });
       } catch (error) {
         console.log('Error getting element attributes:', error);
       }
@@ -140,49 +131,6 @@ async function analyzeFormStructure() {
   }
 }
 
-// Function to find element by label text
-async function findElementByLabel(labelText: string) {
-  console.log('Finding element by label:', labelText);
-  try {
-    // Try different strategies to find the element
-    const strategies = [
-      // Strategy 1: Find label by exact text and get the associated input
-      async () => {
-        const label = await driver.findElement(By.xpath(`//label[normalize-space(text())="${labelText}"]`));
-        const forAttribute = await label.getAttribute('for');
-        if (forAttribute) {
-          return await driver.findElement(By.id(forAttribute));
-        }
-        // If no 'for' attribute, try finding the next input
-        return await driver.findElement(By.xpath(`//label[normalize-space(text())="${labelText}"]/following::input[1]`));
-      },
-      // Strategy 2: Find input by aria-label
-      async () => await driver.findElement(By.css(`input[aria-label="${labelText}"]`)),
-      // Strategy 3: Find by preceding label text
-      async () => await driver.findElement(By.xpath(`//*[text()="${labelText}"]/following::input[1]`)),
-      // Strategy 4: Find by parent div with label text
-      async () => await driver.findElement(By.xpath(`//div[.//text()="${labelText}"]//input`)),
-      // Strategy 5: Find by nearby text
-      async () => await driver.findElement(By.xpath(`//*[contains(text(), "${labelText}")]/following::input[1]`))
-    ];
-
-    for (const strategy of strategies) {
-      try {
-        const element = await strategy();
-        if (element) {
-          console.log(`Found element for label "${labelText}" using strategy`);
-          return element;
-        }
-      } catch (error) {
-        continue;
-      }
-    }
-    throw new Error(`Could not find element for label "${labelText}"`);
-  } catch (error) {
-    console.error(`Error finding element by label "${labelText}":`, error);
-    return null;
-  }
-}
 
 // Function to fill payment form
 async function fillPaymentForm() {
