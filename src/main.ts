@@ -103,7 +103,7 @@ async function analyzeFormStructure() {
 
     // Get page HTML
     const html = await driver.getPageSource();
-    console.log('Analyzing page structure...');
+    // console.log('Analyzing page structure...');
 
     // Log the HTML for analysis
     // console.log('Page HTML:', html);
@@ -215,8 +215,8 @@ async function fillPaymentForm() {
             const formattedCurrent = `${month.trim()}${year.trim()}`;
             return formattedCurrent === expectedValue;
           }
-          return currentValue === expectedValue || 
-                 (currentValue.replace(/\s/g, '') === expectedValue.replace(/\s/g, ''));
+          return currentValue === expectedValue ||
+            (currentValue.replace(/\s/g, '') === expectedValue.replace(/\s/g, ''));
         } catch (error) {
           return false;
         }
@@ -238,7 +238,7 @@ async function fillPaymentForm() {
         try {
           const element = await driver.wait(until.elementLocated(By.css(selector)), 2000);
           await driver.wait(until.elementIsVisible(element), 2000);
-          
+
           // Check if field already has correct value
           if (await checkFieldValue(element, paymentInfo.cardName)) {
             console.log('Card name already correct');
@@ -267,11 +267,11 @@ async function fillPaymentForm() {
           // Switch back to main iframe first
           await driver.switchTo().defaultContent();
           await driver.switchTo().frame(mainIframe);
-          
+
           // Find the specific hosted field iframe
           const iframeSelector = `iframe[name="braintree-hosted-field-${fieldType}"]`;
           const iframeExists = await driver.findElements(By.css(iframeSelector));
-          
+
           // If iframe doesn't exist, the field might already be filled and hidden
           if (iframeExists.length === 0) {
             console.log(`${fieldType} iframe not found, field might be already filled`);
@@ -279,7 +279,7 @@ async function fillPaymentForm() {
           }
 
           const hostedFieldIframe = await driver.findElement(By.css(iframeSelector));
-          
+
           // Switch to the hosted field iframe
           await driver.switchTo().frame(hostedFieldIframe);
           console.log(`Switched to ${fieldType} iframe`);
@@ -311,7 +311,7 @@ async function fillPaymentForm() {
           }
 
           await input.clear();
-          
+
           // Type value with delay
           if (fieldType === 'expirationDate') {
             // Format expiry date as MM/YY
@@ -337,10 +337,10 @@ async function fillPaymentForm() {
             const formattedEntered = `${month.trim()}${year.trim()}`;
             isCorrect = formattedEntered === value;
           } else {
-            isCorrect = enteredValue === value || 
-                       (fieldType === 'number' && enteredValue.replace(/\s/g, '') === value);
+            isCorrect = enteredValue === value ||
+              (fieldType === 'number' && enteredValue.replace(/\s/g, '') === value);
           }
-          
+
           if (isCorrect) {
             console.log(`Successfully filled ${fieldType}`);
             return true;
@@ -427,7 +427,7 @@ async function fillPaymentForm() {
         // First check if the country text is already visible in the dropdown
         const countryDropdownText = await driver.findElements(By.css('#country-dropdown .dropdown__selected-text'));
         let countryAlreadySelected = false;
-        
+
         if (countryDropdownText.length > 0) {
           const selectedText = await countryDropdownText[0].getText();
           if (selectedText === paymentInfo.country) {
@@ -442,7 +442,7 @@ async function fillPaymentForm() {
             until.elementLocated(By.css('#country-dropdown')),
             5000
           );
-          
+
           // Double check the selected text before clicking
           try {
             const selectedText = await countryDropdownTrigger.getText();
@@ -457,20 +457,20 @@ async function fillPaymentForm() {
           if (!countryAlreadySelected) {
             await countryDropdownTrigger.click();
             console.log('Clicked country dropdown');
-            
+
             // Wait for dropdown items to be visible
             await driver.wait(
               until.elementLocated(By.css('.dropdown__items')),
               5000
             );
-            
+
             // Find the specific country option by exact text match
             const countryXPath = `//span[@role='option' and @aria-label='${paymentInfo.country}']`;
             const countryOption = await driver.wait(
               until.elementLocated(By.xpath(countryXPath)),
               5000
             );
-            
+
             // Scroll the option into view and click it
             await driver.executeScript("arguments[0].scrollIntoView(true);", countryOption);
             await new Promise(resolve => setTimeout(resolve, 1000)); // Wait for scroll
@@ -590,24 +590,24 @@ async function fillPaymentForm() {
           // Check if state is already selected
           const stateInput = await driver.findElement(By.css('input[name="state"]'));
           const currentState = await stateInput.getAttribute('value');
-          
+
           if (currentState !== addressInfo.state) {
             await stateDropdownTrigger.click();
             console.log('Clicked state dropdown');
-            
+
             // Wait for dropdown items to be visible
             await driver.wait(
               until.elementLocated(By.css('.dropdown__items')),
               5000
             );
-            
+
             // Find the specific state option by value attribute or aria-label
             const stateXPath = `//span[@role='option' and (@value='${addressInfo.state}' or @aria-label='${addressInfo.state === 'NY' ? 'New York' : addressInfo.state}')]`;
             const stateOption = await driver.wait(
               until.elementLocated(By.xpath(stateXPath)),
               5000
             );
-            
+
             // Scroll the option into view and click it
             await driver.executeScript("arguments[0].scrollIntoView(true);", stateOption);
             await new Promise(resolve => setTimeout(resolve, 500)); // Wait for scroll
@@ -700,6 +700,179 @@ async function fillPaymentForm() {
     // Always try to switch back to default content
     try {
       await driver.switchTo().defaultContent();
+      // console.log('Switched back to default content');
+    } catch (error) {
+      console.error('Error switching back to default content:', error);
+    }
+  }
+}
+
+async function fillCVV() {
+  try {
+    console.log('Starting CVV fill process...');
+
+    // First switch back to default content
+    await driver.switchTo().defaultContent();
+    console.log('Switched to default content');
+
+    // Wait for any dynamic content to load
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    // First find the main wallet iframe
+    const mainWalletIframe = await driver.wait(
+      until.elementLocated(By.css('iframe[name^="__zoid__fan_wallet__"]')),
+      5000,
+      'Main wallet iframe not found'
+    );
+    console.log('Found main wallet iframe');
+
+    // Switch to the main wallet iframe
+    await driver.switchTo().frame(mainWalletIframe);
+    console.log('Switched to main wallet iframe');
+
+    // Wait for the CVV section to be present
+    let retryCount = 0;
+    const maxRetries = 3;
+    let cvvSection = null;
+
+    while (retryCount < maxRetries) {
+      try {
+        cvvSection = await driver.wait(
+          until.elementLocated(By.css('div[data-tid="cvv-hf"]')),
+          5000
+        );
+        console.log('Found CVV section');
+        break;
+      } catch (error) {
+        retryCount++;
+        console.log(`Retry ${retryCount} - Waiting for CVV section to appear...`);
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        if (retryCount === maxRetries) {
+          try {
+            const html = await driver.getPageSource();
+            console.log('Current page HTML structure:', html);
+          } catch (e) {
+            console.log('Could not get page source:', e);
+          }
+        }
+      }
+    }
+
+    if (!cvvSection) {
+      throw new Error('Could not find CVV section after retries');
+    }
+
+    // Find the Braintree CVV iframe within the main wallet iframe
+    const cvvIframe = await cvvSection.findElement(
+      By.css('iframe[name="braintree-hosted-field-cvv"]')
+    );
+    console.log('Found CVV iframe');
+
+    // Wait before switching to CVV iframe
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // Switch to the CVV iframe
+    await driver.switchTo().frame(cvvIframe);
+    console.log('Switched to CVV iframe');
+
+    // Wait for the input to be ready
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // Find the input field with retries
+    let cvvInput = null;
+    retryCount = 0;
+
+    while (retryCount < maxRetries) {
+      try {
+        cvvInput = await driver.wait(
+          until.elementLocated(By.css('input')),
+          5000
+        );
+        console.log('Found CVV input');
+        break;
+      } catch (error) {
+        retryCount++;
+        console.log(`Retry ${retryCount} - Waiting for CVV input to appear...`);
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+    }
+
+    if (!cvvInput) {
+      throw new Error('Could not find CVV input after retries');
+    }
+
+    // Wait for the input to be interactable
+    await driver.wait(
+      until.elementIsVisible(cvvInput),
+      5000,
+      'CVV input not visible'
+    );
+
+    // Check if CVV is already filled
+    const currentCVV = await cvvInput.getAttribute('value');
+    if (currentCVV && currentCVV.length === 3) {
+      console.log('CVV already filled');
+      return;
+    }
+
+    // Clear the field first
+    await cvvInput.clear();
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    const cvv = '424';
+    
+    // Try multiple input methods
+    let inputSuccess = false;
+    
+    // Method 1: Direct sendKeys with delay
+    try {
+      for (const digit of cvv) {
+        await cvvInput.sendKeys(digit);
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
+      inputSuccess = true;
+    } catch (error) {
+      console.log('Direct input failed, trying alternative method');
+    }
+
+    // Method 2: JavaScript execution if Method 1 fails
+    if (!inputSuccess) {
+      try {
+        await driver.executeScript(
+          `arguments[0].value = '${cvv}';
+           arguments[0].dispatchEvent(new Event('input'));
+           arguments[0].dispatchEvent(new Event('change'));`,
+          cvvInput
+        );
+        inputSuccess = true;
+      } catch (error) {
+        console.log('JavaScript input failed:', error);
+      }
+    }
+
+    // Verify CVV was entered correctly
+    const enteredCVV = await cvvInput.getAttribute('value');
+    if (enteredCVV === cvv) {
+      console.log('CVV verification successful');
+    } else {
+      console.log('CVV verification failed. Current value:', enteredCVV);
+    }
+
+  } catch (error: unknown) {
+    console.error('Error in fillCVV:', error instanceof Error ? error.message : error);
+    
+    // Log the current frame context
+    try {
+      const frameHandle = await driver.executeScript('return window.frameElement && window.frameElement.name');
+      console.log('Current frame:', frameHandle);
+    } catch (e) {
+      console.log('Could not determine current frame');
+    }
+  } finally {
+    // Always try to switch back to default content
+    try {
+      await driver.switchTo().defaultContent();
       console.log('Switched back to default content');
     } catch (error) {
       console.error('Error switching back to default content:', error);
@@ -713,7 +886,7 @@ async function checkAndFillWalletIframe() {
     if (!driver) return;
 
     const currentUrl = await driver.getCurrentUrl();
-    console.log('Current URL:', currentUrl);
+    // console.log('Current URL:', currentUrl);
 
     if (currentUrl.includes('wallet') ||
       currentUrl.includes('member/edit_billing') ||
@@ -752,6 +925,13 @@ async function checkAndFillWalletIframe() {
           await driver.switchTo().defaultContent();
         }
       }
+    } else if (currentUrl.includes('checkout')) {
+      // console.log('Detected checkout page, analyzing page structure...');
+      const mainFormStructure = await analyzeFormStructure();
+      if (mainFormStructure && mainFormStructure.includes('input')) {
+        await fillCVV()
+        return;
+      }
     }
   } catch (error: unknown) {
     console.error('Error checking wallet page:', error instanceof Error ? error.message : error);
@@ -767,21 +947,21 @@ async function checkAndFillWalletIframe() {
 ipcMain.on('goto-ticketmaster', async () => {
   try {
     if (!isSeleniumReady || !driver) {
-      console.log('Reinitializing Selenium...');
+      // console.log('Reinitializing Selenium...');
       mainWindow?.webContents.send('navigation-status', 'Initializing browser...');
       isSeleniumReady = await initializeSelenium();
     }
 
     if (isSeleniumReady && driver) {
-      console.log('Navigating to Ticketmaster...');
+      // console.log('Navigating to Ticketmaster...');
       mainWindow?.webContents.send('navigation-status', 'Navigating to Ticketmaster...');
 
       try {
         await driver.get('https://www.ticketmaster.com');
-        console.log('Successfully navigated to Ticketmaster');
+        // console.log('Successfully navigated to Ticketmaster');
         mainWindow?.webContents.send('navigation-status', 'Successfully navigated to Ticketmaster');
       } catch (navError) {
-        console.error('Navigation error:', navError);
+        // console.error('Navigation error:', navError);
         mainWindow?.webContents.send('navigation-status', 'Error navigating to Ticketmaster');
 
         // Try to reinitialize and navigate again
@@ -792,7 +972,7 @@ ipcMain.on('goto-ticketmaster', async () => {
         }
       }
     } else {
-      console.error('Selenium is not ready');
+      // console.error('Selenium is not ready');
       mainWindow?.webContents.send('navigation-status', 'Error: Browser not ready');
     }
   } catch (error) {
