@@ -715,86 +715,99 @@ async function fillCVV() {
     await driver.switchTo().defaultContent();
     console.log('Switched to default content');
 
-    // Wait for any dynamic content to load
-    await new Promise(resolve => setTimeout(resolve, 2000));
-
-    // First find the main wallet iframe
+    // Find the main wallet iframe first
     const mainWalletIframe = await driver.wait(
-      until.elementLocated(By.css('iframe[name^="__zoid__fan_wallet__"]')),
+      until.elementLocated(By.css('iframe[name^="__zoid__fan_wallet__"][class="zoid-component-frame"]')),
       5000,
       'Main wallet iframe not found'
     );
     console.log('Found main wallet iframe');
 
+    // Log main iframe attributes for debugging
+    const mainIframeAttributes = {
+      name: await mainWalletIframe.getAttribute('name'),
+      class: await mainWalletIframe.getAttribute('class'),
+      id: await mainWalletIframe.getAttribute('id'),
+      title: await mainWalletIframe.getAttribute('title')
+    };
+    console.log('Main wallet iframe attributes:', mainIframeAttributes);
+
     // Switch to the main wallet iframe
     await driver.switchTo().frame(mainWalletIframe);
     console.log('Switched to main wallet iframe');
 
-    // Wait for the CVV section to be present
-    let retryCount = 0;
-    const maxRetries = 3;
-    let cvvSection = null;
-
-    while (retryCount < maxRetries) {
-      try {
-        cvvSection = await driver.wait(
-          until.elementLocated(By.css('div[data-tid="cvv-hf"]')),
-          5000
-        );
-        console.log('Found CVV section');
-        break;
-      } catch (error) {
-        retryCount++;
-        console.log(`Retry ${retryCount} - Waiting for CVV section to appear...`);
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        
-        if (retryCount === maxRetries) {
-          try {
-            const html = await driver.getPageSource();
-            console.log('Current page HTML structure:', html);
-          } catch (e) {
-            console.log('Could not get page source:', e);
-          }
-        }
-      }
-    }
-
-    if (!cvvSection) {
-      throw new Error('Could not find CVV section after retries');
-    }
-
-    // Find the Braintree CVV iframe within the main wallet iframe
-    const cvvIframe = await cvvSection.findElement(
-      By.css('iframe[name="braintree-hosted-field-cvv"]')
-    );
-    console.log('Found CVV iframe');
-
-    // Wait before switching to CVV iframe
+    // Wait a bit for the iframe content to load
     await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // Log the main iframe's HTML structure
+    const mainIframeHtml = await driver.executeScript('return document.documentElement.outerHTML');
+    console.log('Main wallet iframe HTML structure:', mainIframeHtml);
+
+    // Now find the CVV iframe within the main wallet iframe
+    const cvvIframe = await driver.wait(
+      until.elementLocated(By.css('iframe[name="braintree-hosted-field-cvv"]')),
+      5000,
+      'CVV iframe not found'
+    );
+    console.log('Found CVV iframe within main wallet iframe');
+
+    // Log CVV iframe attributes for debugging
+    const cvvIframeAttributes = {
+      name: await cvvIframe.getAttribute('name'),
+      type: await cvvIframe.getAttribute('type'),
+      id: await cvvIframe.getAttribute('id'),
+      src: await cvvIframe.getAttribute('src')
+    };
+    console.log('CVV iframe attributes:', cvvIframeAttributes);
 
     // Switch to the CVV iframe
     await driver.switchTo().frame(cvvIframe);
     console.log('Switched to CVV iframe');
 
-    // Wait for the input to be ready
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    // Log the CVV iframe's HTML structure
+    const cvvIframeHtml = await driver.executeScript('return document.documentElement.outerHTML');
+    console.log('CVV iframe HTML structure:', cvvIframeHtml);
 
-    // Find the input field with retries
+    // Wait for the input field with retry mechanism
     let cvvInput = null;
-    retryCount = 0;
+    let retryCount = 0;
+    const maxRetries = 3;
 
     while (retryCount < maxRetries) {
       try {
-        cvvInput = await driver.wait(
-          until.elementLocated(By.css('input')),
-          5000
-        );
-        console.log('Found CVV input');
-        break;
-      } catch (error) {
+        // Try different selectors
+        const inputSelectors = [
+          'input[type="tel"]',
+          '#credit-card-cvv',
+          'input.cvv-input',
+          'input[data-braintree-name="cvv"]',
+          'input'
+        ];
+
+        for (const selector of inputSelectors) {
+          try {
+            cvvInput = await driver.wait(
+              until.elementLocated(By.css(selector)),
+              2000
+            );
+            if (cvvInput) {
+              console.log(`Found CVV input with selector: ${selector}`);
+              break;
+            }
+          } catch (error) {
+            continue;
+          }
+        }
+
+        if (cvvInput) break;
+
         retryCount++;
         console.log(`Retry ${retryCount} - Waiting for CVV input to appear...`);
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      } catch (error) {
+        retryCount++;
+        console.log(`Retry ${retryCount} - Error finding CVV input:`, error);
+        await new Promise(resolve => setTimeout(resolve, 1000));
       }
     }
 
@@ -802,12 +815,14 @@ async function fillCVV() {
       throw new Error('Could not find CVV input after retries');
     }
 
-    // Wait for the input to be interactable
-    await driver.wait(
-      until.elementIsVisible(cvvInput),
-      5000,
-      'CVV input not visible'
-    );
+    // Log input field attributes for debugging
+    const inputAttributes = {
+      type: await cvvInput.getAttribute('type'),
+      id: await cvvInput.getAttribute('id'),
+      class: await cvvInput.getAttribute('class'),
+      name: await cvvInput.getAttribute('name')
+    };
+    console.log('CVV input attributes:', inputAttributes);
 
     // Check if CVV is already filled
     const currentCVV = await cvvInput.getAttribute('value');
@@ -831,41 +846,56 @@ async function fillCVV() {
         await cvvInput.sendKeys(digit);
         await new Promise(resolve => setTimeout(resolve, 200));
       }
-      inputSuccess = true;
+      
+      // Verify input after typing
+      const enteredValue = await cvvInput.getAttribute('value');
+      if (enteredValue === cvv) {
+        inputSuccess = true;
+        console.log('Successfully entered CVV using direct input');
+      }
     } catch (error) {
-      console.log('Direct input failed, trying alternative method');
+      console.log('Direct input failed:', error);
     }
 
     // Method 2: JavaScript execution if Method 1 fails
     if (!inputSuccess) {
       try {
-        await driver.executeScript(
-          `arguments[0].value = '${cvv}';
-           arguments[0].dispatchEvent(new Event('input'));
-           arguments[0].dispatchEvent(new Event('change'));`,
-          cvvInput
-        );
-        inputSuccess = true;
+        await driver.executeScript(`
+          arguments[0].value = '${cvv}';
+          arguments[0].dispatchEvent(new Event('input'));
+          arguments[0].dispatchEvent(new Event('change'));
+        `, cvvInput);
+        
+        // Verify input after JavaScript execution
+        const enteredValue = await cvvInput.getAttribute('value');
+        if (enteredValue === cvv) {
+          inputSuccess = true;
+          console.log('Successfully entered CVV using JavaScript');
+        }
       } catch (error) {
         console.log('JavaScript input failed:', error);
       }
     }
 
-    // Verify CVV was entered correctly
-    const enteredCVV = await cvvInput.getAttribute('value');
-    if (enteredCVV === cvv) {
-      console.log('CVV verification successful');
-    } else {
-      console.log('CVV verification failed. Current value:', enteredCVV);
+    if (!inputSuccess) {
+      throw new Error('Failed to enter CVV using all available methods');
     }
 
-  } catch (error: unknown) {
-    console.error('Error in fillCVV:', error instanceof Error ? error.message : error);
+    // Final verification
+    const finalValue = await cvvInput.getAttribute('value');
+    console.log('Final CVV value verification:', finalValue === cvv);
+
+  } catch (error) {
+    console.error('Error in fillCVV:', error);
     
-    // Log the current frame context
+    // Log current frame context
     try {
       const frameHandle = await driver.executeScript('return window.frameElement && window.frameElement.name');
       console.log('Current frame:', frameHandle);
+      
+      // Get the current page source to help with debugging
+      const pageSource = await driver.getPageSource();
+      console.log('Current page source:', pageSource);
     } catch (e) {
       console.log('Could not determine current frame');
     }
